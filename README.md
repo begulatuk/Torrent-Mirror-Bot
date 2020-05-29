@@ -3,7 +3,7 @@
 <a href="#"><img alt="donate" src="https://c5.patreon.com/external/logo/become_a_patron_button@2x.png"/></a>
 </p>
 <p align="center">
-<a href="https://img.shields.io/github/issues/imsawankumar/STorrent-Mirror-Bot"><img alt="issues" src="https://img.shields.io/github/issues/imsawankumar/Torrent-Mirror-Bot"/></a>
+<a href="https://img.shields.io/github/issues/imsawankumar/Torrent-Mirror-Bot"><img alt="issues" src="https://img.shields.io/github/issues/imsawankumar/Torrent-Mirror-Bot"/></a>
 <a href="https://img.shields.io/github/license/imsawankumar/Torrent-Mirror-Bot"><img alt="license" src="https://img.shields.io/github/license/imsawankumar/Torrent-Mirror-Bot"/></a>
 <a href="https://sawankumar.gitlab.io/"><img alt="author" src="https://img.shields.io/badge/author-Sawan%20Kumar-red"/></a>
 <a href="https://www.python.org/"><img alt="language" src="https://img.shields.io/badge/Made%20with-Python-1f425f.svg"/></a>
@@ -13,6 +13,11 @@
 <hr>
 
 > ## This is a telegram bot writen in python for mirroring files on the internet to our beloved Google Drive.
+
+## Donate 
+
+[<img src="https://raw.githubusercontent.com/imsawankumar/Torrent-Mirror-Bot/master/files/paypal.png">](https://www.paypal.me/sawan1800)
+[<img src="https://raw.githubusercontent.com/imsawankumar/Torrent-Mirror-Bot/master/files/upi.png">](#)
 
 # Features supported:
 - Mirroring direct download links to google drive
@@ -33,8 +38,6 @@ Hit the deploy to heroku button and follow the further instructions in the scree
 **NB: This may lead to the suspension of your heroku account so deploy at your own risk.**
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/imsawankumar/Torrent-Mirror-Bot/tree/master)
-
-[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://paypal.me/sawan1800)
  
 
 ## Getting Google OAuth API credential or SECRET_JSON
