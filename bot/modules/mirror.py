@@ -1,32 +1,36 @@
 import requests
 from telegram.ext import CommandHandler, run_async
 
-from bot import Interval, INDEX_URL
+from bot import Interval, INDEX_URL,LOGGER
 from bot import dispatcher, DOWNLOAD_DIR, DOWNLOAD_STATUS_UPDATE_INTERVAL, download_dict, download_dict_lock
 from bot.helper.ext_utils import fs_utils, bot_utils
 from bot.helper.ext_utils.bot_utils import setInterval
-from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
-from bot.helper.mirror_utils.download_utils import aria2_download
+from bot.helper.ext_utils.exceptions import DirectDownloadLinkException, NotSupportedExtractionArchive
+from bot.helper.mirror_utils.download_utils.aria2_download import AriaDownloadHelper
 from bot.helper.mirror_utils.download_utils.direct_link_generator import direct_link_generator
 from bot.helper.mirror_utils.download_utils.telegram_downloader import TelegramDownloadHelper
 from bot.helper.mirror_utils.status_utils import listeners
+from bot.helper.mirror_utils.status_utils.extract_status import ExtractStatus
 from bot.helper.mirror_utils.status_utils.tar_status import TarStatus
 from bot.helper.mirror_utils.status_utils.upload_status import UploadStatus
 from bot.helper.mirror_utils.upload_utils import gdriveTools
 from bot.helper.telegram_helper.bot_commands import BotCommands
 from bot.helper.telegram_helper.filters import CustomFilters
 from bot.helper.telegram_helper.message_utils import *
-from bot.helper.mirror_utils.download_utils.youtube_dl_download_helper import YoutubeDLHelper
 import pathlib
 import os
+import subprocess
+import threading
 
+ariaDlManager = AriaDownloadHelper()
+ariaDlManager.start_listener()
 
 class MirrorListener(listeners.MirrorListeners):
-
-    def __init__(self, bot, update, isTar=False, tag=None):
+    def __init__(self, bot, update, isTar=False,tag=None, extract=False):
         super().__init__(bot, update)
         self.isTar = isTar
         self.tag = tag
+        self.extract = extract
 
     def onDownloadStarted(self):
         pass
@@ -60,8 +64,31 @@ class MirrorListener(listeners.MirrorListeners):
                 LOGGER.info('File to archive not found!')
                 self.onUploadError('Internal error occurred!!')
                 return
+        elif self.extract:
+            download.is_extracting = True
+            try:
+                path = fs_utils.get_base_name(m_path)
+                LOGGER.info(
+                    f"Extracting : {name} "
+                )
+                with download_dict_lock:
+                    download_dict[self.uid] = ExtractStatus(name, m_path, size)
+                archive_result = subprocess.run(["extract", m_path])
+                if archive_result.returncode == 0:
+                    threading.Thread(target=os.remove, args=(m_path,)).start()
+                    LOGGER.info(f"Deleting archive : {m_path}")
+                else:
+                    LOGGER.warning('Unable to extract archive! Uploading anyway')
+                    path = f'{DOWNLOAD_DIR}{self.uid}/{name}'
+                LOGGER.info(
+                    f'got path : {path}'
+                )
+
+            except NotSupportedExtractionArchive:
+                LOGGER.info("Not any valid archive, uploading file as it is.")
+                path = f'{DOWNLOAD_DIR}{self.uid}/{name}'
         else:
-            path = f'{DOWNLOAD_DIR}{self.uid}/{download_dict[self.uid].name()}'
+            path = f'{DOWNLOAD_DIR}{self.uid}/{name}'
         up_name = pathlib.PurePath(path).name
         LOGGER.info(f"Upload Name : {up_name}")
         drive = gdriveTools.GoogleDriveHelper(up_name, self)
@@ -83,7 +110,6 @@ class MirrorListener(listeners.MirrorListeners):
                 del download_dict[self.uid]
                 LOGGER.info(f"Deleting folder: {download.path()}")
                 fs_utils.clean_download(download.path())
-                LOGGER.info(f"Deleting {download.name()} from download_dict.")
                 LOGGER.info(str(download_dict))
             except Exception as e:
                 LOGGER.error(str(e))
@@ -108,13 +134,13 @@ class MirrorListener(listeners.MirrorListeners):
 
     def onUploadComplete(self, link: str):
         with download_dict_lock:
-            msg = f'<b>Filename:</b> <code>{download_dict[self.uid].name()}</code>\n\n<b>Size:</b> <i>{download_dict[self.uid].size()}</i>\n\n<b>Gdrive:</b> {link}'            
+            msg = f'<a href="{link}">{download_dict[self.uid].name()}</a> ({download_dict[self.uid].size()})'
             LOGGER.info(f'Done Uploading {download_dict[self.uid].name()}')
             if INDEX_URL is not None:
                 share_url = requests.utils.requote_uri(f'{INDEX_URL}/{download_dict[self.uid].name()}')
                 if os.path.isdir(f'{DOWNLOAD_DIR}/{self.uid}/{download_dict[self.uid].name()}'):
                     share_url += '/'
-                msg += f'\n\n<b>Index:</b> {share_url}'
+                msg += f'\n\n Shareable link: <a href="{share_url}">here</a>'
             if self.tag is not None:
                 msg += f'\ncc: @{self.tag}'
             try:
@@ -130,7 +156,7 @@ class MirrorListener(listeners.MirrorListeners):
             update_all_messages()
 
     def onUploadError(self, error):
-        e_str = str(error.last_attempt.exception()).replace('<', '').replace('>', '')
+        e_str = error.replace('<', '').replace('>', '')
         with download_dict_lock:
             try:
                 fs_utils.clean_download(download_dict[self.uid].path())
@@ -144,8 +170,7 @@ class MirrorListener(listeners.MirrorListeners):
         else:
             update_all_messages()
 
-
-def _mirror(bot, update, isTar=False):
+def _mirror(bot, update, isTar=False, extract=False):
     message_args = update.message.text.split(' ')
     try:
         link = message_args[1]
@@ -166,7 +191,7 @@ def _mirror(bot, update, isTar=False):
         if len(link) == 0:
             if file is not None:
                 if file.mime_type != "application/x-bittorrent":
-                    listener = MirrorListener(bot, update, isTar, tag)
+                    listener = MirrorListener(bot, update, isTar, tag, extract)
                     tg_downloader = TelegramDownloadHelper(listener)
                     tg_downloader.add_download(reply_to, f'{DOWNLOAD_DIR}{listener.uid}/')
                     sendStatusMessage(update, bot)
@@ -185,9 +210,9 @@ def _mirror(bot, update, isTar=False):
         link = direct_link_generator(link)
     except DirectDownloadLinkException as e:
         LOGGER.info(f'{link}: {e}')
-    listener = MirrorListener(bot, update, isTar, tag)
-    aria = aria2_download.AriaDownloadHelper(listener)
-    aria.add_download(link, f'{DOWNLOAD_DIR}/{listener.uid}/')
+
+    listener = MirrorListener(bot, update, isTar, tag, extract)
+    ariaDlManager.add_download(link, f'{DOWNLOAD_DIR}/{listener.uid}/',listener)
     sendStatusMessage(update, bot)
     if len(Interval) == 0:
         Interval.append(setInterval(DOWNLOAD_STATUS_UPDATE_INTERVAL, update_all_messages))
@@ -203,9 +228,17 @@ def tar_mirror(update, context):
     _mirror(context.bot, update, True)
 
 
+@run_async
+def unzip_mirror(update, context):
+    _mirror(context.bot,update, extract=True)
+
+
 mirror_handler = CommandHandler(BotCommands.MirrorCommand, mirror,
                                 filters=CustomFilters.authorized_chat | CustomFilters.authorized_user)
 tar_mirror_handler = CommandHandler(BotCommands.TarMirrorCommand, tar_mirror,
                                     filters=CustomFilters.authorized_chat | CustomFilters.authorized_user)
+unzip_mirror_handler = CommandHandler(BotCommands.UnzipMirrorCommand, unzip_mirror,
+                                      filters=CustomFilters.authorized_chat | CustomFilters.authorized_user)
 dispatcher.add_handler(mirror_handler)
 dispatcher.add_handler(tar_mirror_handler)
+dispatcher.add_handler(unzip_mirror_handler)
